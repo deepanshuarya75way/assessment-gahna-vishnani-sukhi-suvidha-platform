@@ -14,10 +14,13 @@ import LoginPage from "./pages/LoginPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ProfilePage from "./pages/ProfilePage";
 import HistoryPage from "./pages/HistoryPage";
-
-
-
+import PreVisitGuidancePage from "./pages/PreVisitGuidancePage";
+import DoctorDashboardPage from "./pages/DoctorDashboardPage";
+import ReportAnalyzerPage from "./pages/ReportAnalyzerPage";
+import LandingPage from "./pages/LandingPage";
 import ProtectedRoute from "./components/ProtectedRoute";
+import SymptomAnalyzerPage from "./pages/SymptomAnalyzerPage";
+
 
 function App() {
   return (
@@ -32,6 +35,14 @@ function App() {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route
+        path="/landing"
+        element={
+          <ProtectedRoute>
+            <LandingPage />
+          </ProtectedRoute>
+        }
+      />
 
 
         {/* Protected pages */}
@@ -106,6 +117,25 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/pre-visit"
+          element={
+            <ProtectedRoute>
+              <PreVisitGuidancePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/doctor-dashboard"
+          element={
+          <ProtectedRoute>
+          <DoctorDashboardPage />
+          </ProtectedRoute>
+          }
+          />
+          <Route path="/report-analyzer" element={<ReportAnalyzerPage />} />
+          <Route path="/symptom-analyzer" element={<SymptomAnalyzerPage />} />
 
 
 

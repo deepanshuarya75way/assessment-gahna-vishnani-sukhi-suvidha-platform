@@ -1,205 +1,372 @@
 import os
 import uuid
 import logging
-from typing import List, Dict
-from datetime import datetime
+from typing import Dict
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from dotenv import load_dotenv
-
+import cv2
 import easyocr
 from gtts import gTTS
+from pdf2image import convert_from_path
 
-# ---------------------------
-# Basic config
-# ---------------------------
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
+from sentence_transformers import SentenceTransformer, util
+
+# ---------------- INIT ----------------
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("backend")
 
-load_dotenv()
+app = FastAPI(title="AI Healthcare Backend")
 
-# Directories
-os.makedirs("uploads", exist_ok=True)
-os.makedirs("audio/output", exist_ok=True)
-
-# FastAPI app
-app = FastAPI(title="Sukhi Suvidha Backend (OCR + Chatbot)")
-
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------------------
-# Supported OCR languages
-# ---------------------------
-OCR_LANG_MAP = {
-    "en": ["en"],
-    "hi": ["hi"],
-    "bn": ["bn"],
-    "te": ["te"],
-    "ta": ["ta"],
-    "mr": ["mr"],
+# ---------------- FOLDERS ----------------
+
+os.makedirs("uploads", exist_ok=True)
+os.makedirs("uploads/processed", exist_ok=True)
+os.makedirs("audio/output", exist_ok=True)
+
+# =========================================================
+# 🧠 SYMPTOM ANALYZER (FULL SYSTEM)
+# =========================================================
+
+SYMPTOM_FLOWS = {
+    "Headache": ["duration", "severity"],
+    "Fever": ["temperature", "other"],
+    "Stomach Pain": ["location", "duration"],
+    "Fatigue": ["duration", "sleep"],
+    "Chest Pain": ["severity", "breathing"],
+    "Cold": ["duration", "cough"],
+    "Dizziness": ["frequency", "trigger"],
+    "Body Pain": ["area", "severity"]
 }
 
-# Cache EasyOCR Readers
+QUESTIONS = {
+    "duration": {
+        "question": "How long have you been experiencing this?",
+        "options": ["Today", "2-3 days", "More than a week"]
+    },
+    "severity": {
+        "question": "How severe is it?",
+        "options": ["Mild", "Moderate", "Severe"]
+    },
+    "temperature": {
+        "question": "What is your fever level?",
+        "options": ["Low", "High"]
+    },
+    "other": {
+        "question": "Any other symptoms?",
+        "options": ["Cough", "Cold", "Weakness"]
+    },
+    "location": {
+        "question": "Where exactly?",
+        "options": ["Upper abdomen", "Lower abdomen"]
+    },
+    "sleep": {
+        "question": "Are you getting proper sleep?",
+        "options": ["Yes", "No"]
+    },
+    "breathing": {
+        "question": "Any breathing issues?",
+        "options": ["Yes", "No"]
+    },
+    "cough": {
+        "question": "Do you have cough?",
+        "options": ["Yes", "No"]
+    },
+    "frequency": {
+        "question": "How often?",
+        "options": ["Occasional", "Frequent"]
+    },
+    "trigger": {
+        "question": "When does it happen?",
+        "options": ["Standing", "Walking"]
+    },
+    "area": {
+        "question": "Where exactly?",
+        "options": ["Neck", "Back", "Joint"]
+    }
+}
+
+@app.post("/chat")
+async def chat(request: Request):
+    data = await request.json()
+
+    message = data.get("message")
+    step = data.get("step", "start")
+    symptom = data.get("symptom")
+    answers = data.get("answers", {})
+
+    if step == "start":
+        return {
+            "reply": "Hi 👋 How are you feeling today?",
+            "options": ["Good", "Okay", "Not well"],
+            "next_step": "symptoms",
+            "answers": {}
+        }
+
+    elif step == "symptoms":
+        return {
+            "reply": "What symptoms are you experiencing?",
+            "options": list(SYMPTOM_FLOWS.keys()),
+            "next_step": "q1",
+            "symptom": message,
+            "answers": {}
+        }
+
+    elif step == "q1":
+        answers["symptom"] = symptom
+        return {
+            "reply": "How long have you had this?",
+            "options": ["Today", "2-3 days", "More than a week"],
+            "next_step": "q2",
+            "symptom": symptom,
+            "answers": answers
+        }
+
+    elif step == "q2":
+        answers["duration"] = message
+        return {
+            "reply": "How severe is it?",
+            "options": ["Mild", "Moderate", "Severe"],
+            "next_step": "q3",
+            "symptom": symptom,
+            "answers": answers
+        }
+
+    elif step == "q3":
+        answers["severity"] = message
+        return {
+            "reply": "Any other symptoms?",
+            "options": ["Yes", "No"],
+            "next_step": "predict",
+            "symptom": symptom,
+            "answers": answers
+        }
+
+    return {"reply": "Analyzing...", "options": []}
+
+
+@app.post("/predict")
+async def predict(request: Request):
+    data = await request.json()
+
+    symptom = data.get("symptom")
+    answers = data.get("answers", {})
+
+    severity = (answers.get("severity") or "").lower()
+    duration = (answers.get("duration") or "").lower()
+
+    risk = 30
+    level = "Low"
+    diseases = ["General issue"]
+    action = "✅ Home care sufficient"
+
+    # ---------------- BODY PAIN ----------------
+    if symptom == "Body Pain":
+
+        if severity == "severe" and duration == "more than a week":
+            risk = 85
+            level = "High"
+            diseases = ["Chronic muscle inflammation"]
+            action = "🚨 You should visit a doctor immediately"
+
+        elif severity == "severe":
+            risk = 70
+            level = "High"
+            diseases = ["Muscle injury"]
+            action = "⚠️ Consult doctor soon"
+
+        elif duration == "more than a week":
+            risk = 60
+            level = "Medium"
+            diseases = ["Muscle strain"]
+            action = "⚠️ Monitor and consider doctor visit"
+
+    # ---------------- HEADACHE ----------------
+    elif symptom == "Headache":
+
+        if severity == "severe":
+            risk = 75
+            level = "High"
+            diseases = ["Migraine"]
+            action = "⚠️ Consult doctor"
+
+        else:
+            risk = 40
+            level = "Medium"
+            diseases = ["Stress headache"]
+            action = "Rest and hydration"
+
+    # ---------------- CHEST PAIN ----------------
+    elif symptom == "Chest Pain":
+        risk = 90
+        level = "High"
+        diseases = ["Heart condition"]
+        action = "🚨 Immediate medical attention required"
+
+    return {
+        "risk_score": risk,
+        "risk_level": level,
+        "diseases": diseases,
+        "action": action,
+        "symptom": symptom
+    }
+
+# =========================================================
+# 🏥 SPECIALTY DETECTION
+# =========================================================
+
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+SPECIALTIES = {
+    "cardiologist": ["chest pain", "heart pain", "shortness of breath"],
+    "orthopedicSurgeon": ["knee pain", "joint pain", "bone fracture"],
+    "pediatrician": ["child fever", "baby illness"],
+    "gynecologist": ["pregnancy", "pcos", "period pain"],
+    "dermatologist": ["skin rash", "acne"]
+}
+
+def detect_specialty(symptom: str):
+    emb = embedding_model.encode(symptom, convert_to_tensor=True)
+
+    best, score = None, 0
+
+    for sp, examples in SPECIALTIES.items():
+        ex_emb = embedding_model.encode(examples, convert_to_tensor=True)
+        s = util.cos_sim(emb, ex_emb).max()
+
+        if s > score:
+            best, score = sp, s
+
+    return best
+
+
+@app.post("/detect-specialty")
+async def detect_specialty_api(symptoms: str = Form(...)):
+    return {
+        "symptoms": symptoms,
+        "recommended_specialty": detect_specialty(symptoms)
+    }
+
+# =========================================================
+# 📄 OCR (UPLOAD PRESCRIPTION)
+# =========================================================
+
+OCR_LANG_MAP = {"en": ["en"], "hi": ["hi", "en"]}
 readers: Dict[str, easyocr.Reader] = {}
 
-
-def get_easyocr_reader(lang_code: str) -> easyocr.Reader:
-  if lang_code not in OCR_LANG_MAP:
-      raise ValueError(f"Unsupported OCR language: {lang_code}")
-  if lang_code not in readers:
-      logger.info(f"Initializing EasyOCR reader for {lang_code}...")
-      readers[lang_code] = easyocr.Reader(OCR_LANG_MAP[lang_code], gpu=False)
-  return readers[lang_code]
+def get_reader(lang: str):
+    if lang not in readers:
+        readers[lang] = easyocr.Reader(OCR_LANG_MAP[lang], gpu=False)
+    return readers[lang]
 
 
-# ---------------------------
-# Save file utility
-# ---------------------------
-def save_file(upload: UploadFile) -> str:
-    filename = f"{uuid.uuid4().hex}_{upload.filename}"
-    path = os.path.join("uploads", filename)
-    with open(path, "wb") as f:
-        f.write(upload.file.read())
-    return path
+def preprocess_image(path: str):
+    try:
+        img = cv2.imread(path)
+        if img is None:
+            return path
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        thresh = cv2.adaptiveThreshold(
+            blur, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 11, 2
+        )
+
+        out = f"uploads/processed/{os.path.basename(path)}"
+        cv2.imwrite(out, thresh)
+        return out
+    except Exception as e:
+        print("OpenCV error:", e)
+        return path
 
 
-# ---------------------------
-# TTS generator
-# ---------------------------
 def make_audio(text: str, lang: str):
     if not text:
         return None
 
-    lang_map = {
-        "en": "en",
-        "hi": "hi",
-        "mr": "mr",
-        "ta": "ta",
-        "te": "te",
-        "bn": "bn",
-    }
+    fn = f"{uuid.uuid4().hex}.mp3"
+    gTTS(text=text, lang=lang if lang in ["en", "hi"] else "en")\
+        .save(f"audio/output/{fn}")
 
-    gtts_lang = lang_map.get(lang, "en")
-
-    filename = f"{uuid.uuid4().hex}.mp3"
-    output_path = os.path.join("audio/output", filename)
-
-    tts = gTTS(text=text, lang=gtts_lang)
-    tts.save(output_path)
-
-    return filename
+    return fn
 
 
-# ---------------------------
-# Upload OCR endpoint
-# ---------------------------
 @app.post("/upload-ocr")
 async def upload_ocr(uploadFile: UploadFile = File(...), language_code: str = Form(...)):
-    try:
-        if language_code not in OCR_LANG_MAP:
-            raise HTTPException(status_code=400, detail="Unsupported language.")
+    path = f"uploads/{uuid.uuid4().hex}_{uploadFile.filename}"
 
-        # Save file
-        path = save_file(uploadFile)
+    with open(path, "wb") as f:
+        f.write(uploadFile.file.read())
 
-        # OCR
-        reader = get_easyocr_reader(language_code)
-        text_list: List[str] = reader.readtext(path, detail=0)
-        extracted_text = " ".join(text_list).strip()
+    processed = preprocess_image(path)
 
-        # No GPT – simple relay
-        simplified = extracted_text or "No readable text found."
+    results = get_reader(language_code).readtext(processed, detail=0)
+    text = " ".join(results)
 
-        # Generate audio
-        audio_file = make_audio(simplified, language_code)
+    audio = make_audio(text, language_code)
 
-        return JSONResponse(
-            {
-                "text": simplified,
-                "audio_url": f"/audio/{audio_file}" if audio_file else None,
-            }
-        )
-
-    except Exception as e:
-        logger.exception("Upload OCR failed")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ---------------------------
-# Serve audio files
-# ---------------------------
-@app.get("/audio/{filename}")
-def get_audio(filename: str):
-    path = os.path.join("audio/output", filename)
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Audio not found.")
-    return FileResponse(path, media_type="audio/mpeg")
-
-
-# ---------------------------
-# Rule-based medical chatbot (no OpenAI)
-# ---------------------------
-def medical_chatbot(message: str, lang: str = "en"):
-    """Simple rule-based medical assistant"""
-
-    message_lower = message.lower()
-
-    medical_responses = {
-        "en": {
-            "fever": "For fever: Rest well, drink fluids, take paracetamol. Visit doctor if fever >102°F or persists 3+ days.",
-            "cough": "For cough: Drink warm water, avoid cold drinks, inhale steam. Visit doctor if persistent.",
-            "headache": "For headache: Rest in dark room, drink water, avoid screens. Visit doctor if severe.",
-            "cold": "For cold: Warm fluids, rest, nasal saline drops. Usually improves in 7-10 days.",
-            "stomach": "For stomach issues: Drink ORS, eat bananas/rice, avoid spicy food.",
-            "skin": "Keep area clean + dry. Avoid scratching. Use mild soap. Consult dermatologist if severe.",
-            "pain": "Rest the area, use ice pack, take prescribed pain medicine if needed.",
-            "default": "I can help with fever, cough, headache, cold, skin or stomach issues. Describe your symptom."
-        },
-        "hi": {
-            "fever": "बुखार: आराम करें, तरल पदार्थ पिएं, पेरासिटामोल लें। 3 दिन से ज़्यादा बुखार हो तो डॉक्टर को दिखाएं।",
-            "cough": "खांसी: शहद वाला गर्म पानी पिएं, भाप लें। यदि एक सप्ताह से अधिक हो तो डॉक्टर को दिखाएं।",
-            "headache": "सिरदर्द: अंधेरे कमरे में आराम करें, पानी पिएं, स्क्रीन टाइम कम करें।",
-            "cold": "जुकाम: आराम करें, गर्म तरल लें, सलाइन ड्रॉप्स use करें।",
-            "stomach": "पेट दर्द: ORS पिएँ, हल्का भोजन करें, मसालेदार भोजन से बचें।",
-            "skin": "त्वचा: साफ रखें, खुजलाएं नहीं, हल्के साबुन का उपयोग करें।",
-            "pain": "दर्द: आराम करें, बर्फ की सिकाई करें।",
-            "default": "मैं बुखार, खांसी, सिरदर्द, जुकाम, पेट और त्वचा समस्याओं में मदद कर सकता हूँ।"
-        }
+    return {
+        "text": text,
+        "audio_url": f"/audio/{audio}" if audio else None
     }
 
-    # detect language responses
-    res = medical_responses.get(lang, medical_responses["en"])
+# =========================================================
+# 📊 REPORT ANALYZER
+# =========================================================
 
-    # keyword matching
-    for key in ["fever", "cough", "headache", "cold", "stomach", "skin", "pain"]:
-        if key in message_lower:
-            return res[key]
+REPORT_TYPES = {
+    "blood": ["hemoglobin", "wbc", "rbc", "glucose"],
+    "xray": ["fracture", "infection", "pneumonia"],
+    "lab": ["vitamin", "thyroid", "creatinine"]
+}
 
-    return res["default"]
-
-
-# Chatbot API
-@app.post("/chat")
-async def chat_with_bot(message: str = Form(...), lang: str = Form("en")):
-    try:
-        reply = medical_chatbot(message, lang)
-        return {"reply": reply}
-    except Exception:
-        return {"reply": "Sorry, I couldn't understand. Try again."}
+def convert_pdf_to_image(pdf_path):
+    pages = convert_from_path(pdf_path)
+    img_path = f"uploads/processed/{uuid.uuid4().hex}.png"
+    pages[0].save(img_path, "PNG")
+    return img_path
 
 
-# ---------------------------
-# Health check
-# ---------------------------
-@app.get("/")
-def root():
-    return {"status": "running", "service": "Backend Ready"}
+@app.post("/analyze-report")
+async def analyze_report(file: UploadFile = File(...), report_type: str = Form(...)):
+    path = f"uploads/{uuid.uuid4().hex}_{file.filename}"
+
+    with open(path, "wb") as f:
+        f.write(file.file.read())
+
+    if file.filename.endswith(".pdf"):
+        path = convert_pdf_to_image(path)
+
+    processed = preprocess_image(path)
+
+    results = get_reader("en").readtext(processed, detail=0)
+    text = " ".join(results)
+
+    findings = [k for k in REPORT_TYPES.get(report_type, []) if k in text.lower()]
+
+    return {
+        "report_type": report_type,
+        "extracted_text": text,
+        "findings": findings
+    }
+
+# =========================================================
+# 🔊 AUDIO ROUTE
+# =========================================================
+
+@app.get("/audio/{file}")
+def audio(file: str):
+    return FileResponse(f"audio/output/{file}")

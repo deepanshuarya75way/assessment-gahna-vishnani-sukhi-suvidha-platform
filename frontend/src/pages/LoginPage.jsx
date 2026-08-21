@@ -22,7 +22,7 @@ const LoginPage = () => {
     
     // Check if user is already logged in
     if (isAuthenticated()) {
-      navigate("/facilities");
+      navigate("/landing");
     }
     
     // Pre-fill phone number if available
@@ -65,7 +65,7 @@ const LoginPage = () => {
       if (enteredNormalized === storedNormalized && password === storedPassword) {
         // Set authentication token
         localStorage.setItem("isAuthenticated", "true");
-        navigate("/facilities");
+        navigate("/landing");
       } else {
         setError(t.invalidCredentials || "Invalid phone number or password");
       }

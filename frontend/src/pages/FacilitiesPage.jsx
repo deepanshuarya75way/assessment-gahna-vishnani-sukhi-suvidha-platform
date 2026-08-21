@@ -55,7 +55,7 @@ const FacilitiesPage = () => {
     }
   };
 
-  
+  // FACILITY CARDS
   const facilityCards = [
     {
       id: 1,
@@ -71,7 +71,7 @@ const FacilitiesPage = () => {
       description: t.medicineDesc || "Commonly used medicines and their purposes",
       icon: "💊",
       path: "/general-medicines",
-      color: "from-green-500 to-green-600",
+      color: "from-emerald-500 to-green-600",
     },
     {
       id: 3,
@@ -79,7 +79,7 @@ const FacilitiesPage = () => {
       description: t.doctorDesc,
       icon: "👨‍⚕️",
       path: "/doctors-consultation",
-      color: "from-purple-500 to-purple-600",
+      color: "from-indigo-500 to-indigo-600",
     },
     {
       id: 4,
@@ -87,13 +87,32 @@ const FacilitiesPage = () => {
       description: t.dietDesc || "Nutrition plans for different age groups.",
       icon: "🥗",
       path: "/healthy-diet",
-      color: "from-orange-500 to-orange-600",
+      color: "from-amber-500 to-orange-500",
     },
-  ];
+
+    {
+      id: 5,
+      title: "Report Analyzer",
+      description: "Upload blood reports, X-ray reports or lab reports and get AI analysis.",
+      icon: "🧪",
+      path: "/report-analyzer",
+      color: "from-cyan-500 to-blue-500"
+    },
+     {
+    id: 6,
+    title: "Symptom Analyzer",
+    description:
+      "Talk with AI to analyze symptoms, get risk score and health recommendations.",
+    icon: "🧠",
+    path: "/symptom-analyzer",
+    color: "from-purple-500 to-pink-500",
+  },
+];
 
   return (
     <div className="min-h-screen bg-[#c8f5d9] px-4 sm:px-6 py-6 relative">
-      {/* TOP RIGHT GREETING + PROFILE */}
+
+      {/* PROFILE SECTION */}
       <div className="absolute top-4 right-4 flex items-center gap-3">
         <span className="text-gray-800 hidden md:block">
           Hello, {userName}
@@ -122,12 +141,14 @@ const FacilitiesPage = () => {
               >
                 👤 Profile
               </button>
+
               <button
                 onClick={() => handleProfileAction("history")}
                 className="block w-full px-4 py-2 text-left hover:bg-gray-100"
               >
                 📋 History
               </button>
+
               <button
                 onClick={() => handleProfileAction("logout")}
                 className="block w-full px-4 py-2 text-left text-red-600 hover:bg-red-100"
@@ -141,59 +162,91 @@ const FacilitiesPage = () => {
 
       {/* MAIN CONTENT */}
       <div className="max-w-6xl mx-auto pt-10 pb-16">
+
         {/* HEADING */}
         <div className="text-center mb-10">
           <h1 className="text-4xl md:text-5xl font-extrabold text-[#065f46]">
-  {t.facilitiesTitle}
-</h1>
-<p className="mt-3 text-gray-700 text-lg">
-  {t.facilitiesSubtitle}
-</p>
+            {t.facilitiesTitle}
+          </h1>
 
+          <p className="mt-3 text-gray-700 text-lg">
+            {t.facilitiesSubtitle}
+          </p>
         </div>
 
-        {/* FACILITY CARDS – 2x2 GRID */}
-        <div className="grid gap-8 md:grid-cols-2">
-          {facilityCards.map((card) => (
-            <div
-              key={card.id}
-              onClick={() => navigate(card.path)}
-              className={`p-6 md:p-7 rounded-2xl bg-gradient-to-r ${card.color}
-                          text-white shadow-xl cursor-pointer
-                          hover:scale-[1.02] hover:shadow-2xl transition-all`}
-            >
-              <div className="flex items-center">
-                <span className="text-3xl mr-4">{card.icon}</span>
-                <h2 className="text-xl font-semibold">{card.title}</h2>
-              </div>
+        {/* FACILITY CARDS */}
+<div className="grid gap-8 md:grid-cols-2">
 
-              <p className="mt-3 text-sm md:text-base text-white/90">
-                {card.description}
-              </p>
+  {/* FIRST 4 CARDS */}
+  {facilityCards.slice(0, 4).map((card) => (
+    <div
+      key={card.id}
+      onClick={() => navigate(card.path)}
+      className={`p-6 md:p-7 rounded-2xl bg-gradient-to-r ${card.color}
+                  text-white shadow-xl cursor-pointer
+                  hover:scale-[1.02] hover:shadow-2xl transition-all`}
+    >
+      <div className="flex items-center">
+        <span className="text-3xl mr-4">{card.icon}</span>
+        <h2 className="text-xl font-semibold">{card.title}</h2>
+      </div>
 
-              <div className="mt-4 text-sm font-medium flex items-center">
-                <span>{t.clickToExplore || "Click to explore"}</span>
-                <span className="ml-1 text-lg leading-none">›</span>
-              </div>
-            </div>
-          ))}
+      <p className="mt-3 text-sm md:text-base text-white/90">
+        {card.description}
+      </p>
+
+      <div className="mt-4 text-sm font-medium flex items-center">
+        <span>{t.clickToExplore || "Click to explore"}</span>
+        <span className="ml-1 text-lg leading-none">›</span>
+      </div>
+    </div>
+  ))}
+
+  {/* LAST ROW (REPORT + SYMPTOM SIDE BY SIDE) */}
+  <div className="md:col-span-2 grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+    {facilityCards.slice(4).map((card) => (
+      <div
+        key={card.id}
+        onClick={() => navigate(card.path)}
+        className={`p-6 md:p-7 rounded-2xl bg-gradient-to-r ${card.color}
+                    text-white shadow-xl cursor-pointer
+                    hover:scale-[1.02] hover:shadow-2xl transition-all`}
+      >
+        <div className="flex items-center">
+          <span className="text-3xl mr-4">{card.icon}</span>
+          <h2 className="text-xl font-semibold">{card.title}</h2>
         </div>
+
+        <p className="mt-3 text-sm md:text-base text-white/90">
+          {card.description}
+        </p>
+
+        <div className="mt-4 text-sm font-medium flex items-center">
+          <span>{t.clickToExplore || "Click to explore"}</span>
+          <span className="ml-1 text-lg leading-none">›</span>
+        </div>
+      </div>
+    ))}
+  </div>
+</div>
 
         {/* UPLOAD PRESCRIPTION */}
         <div className="mt-12 max-w-4xl mx-auto">
           <UploadPanel t={t} />
         </div>
 
-        {/* EMERGENCY CONTACTS */}
+        {/* EMERGENCY */}
         <div className="mt-8 max-w-4xl mx-auto mb-10">
           <EmergencyPanel />
         </div>
+
       </div>
 
-      {/* FIXED CHATBOT */}
+      {/* CHATBOT */}
       <div className="fixed bottom-6 right-6 z-[9999]">
         <ChatbotWidget />
       </div>
+
     </div>
   );
 };
